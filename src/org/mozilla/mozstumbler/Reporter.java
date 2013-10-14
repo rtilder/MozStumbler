@@ -17,6 +17,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.concurrent.locks.ReentrantLock;
+
 import android.content.BroadcastReceiver;
 
 class Reporter extends BroadcastReceiver {
@@ -32,7 +34,9 @@ class Reporter extends BroadcastReceiver {
     private final Context       mContext;
     private final Prefs         mPrefs;
     private JSONArray           mReports;
-    private volatile long       mLastUploadTime;  //TODO why volatile
+    private ReentrantLock       mReportsLock;
+
+    private long   mLastUploadTime;
 
     private String mWifiData;
     private long   mWifiDataTime;
@@ -44,7 +48,7 @@ class Reporter extends BroadcastReceiver {
     private String mGPSData;
 
     private String mRadioType;
-        
+
     Reporter(Context context, Prefs prefs) {
         mContext = context;
         mPrefs = prefs;
@@ -57,6 +61,8 @@ class Reporter extends BroadcastReceiver {
         } catch (Exception e) {
             mReports = new JSONArray();
         }
+
+        mReportsLock = new ReentrantLock();
 
         resetData();
         mContext.registerReceiver(this, new IntentFilter(ScannerService.MESSAGE_TOPIC));
@@ -77,14 +83,16 @@ class Reporter extends BroadcastReceiver {
 
         resetData();
         // Attempt to write out mReports
+        mReportsLock.lock();
         mPrefs.setReports(mReports.toString());
+        mReportsLock.unlock();
         mContext.unregisterReceiver(this);
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
-        
+
         if (!action.equals(ScannerService.MESSAGE_TOPIC)) {
             Log.e(LOGTAG, "Received an unknown intent");
             return;
@@ -93,21 +101,23 @@ class Reporter extends BroadcastReceiver {
         long time = intent.getLongExtra("time", 0);
         String subject = intent.getStringExtra(Intent.EXTRA_SUBJECT);
         String data = intent.getStringExtra("data");
-        if (data!=null) Log.d(LOGTAG, "" + subject + " : " + data);
+        if (data != null) {
+            Log.d(LOGTAG, "" + subject + " : " + data);
+        }
 
         if (mWifiDataTime - time > REPORTER_WINDOW) {
-          mWifiData = "";
-          mWifiDataTime = 0;
+            mWifiData = "";
+            mWifiDataTime = 0;
         }
 
         if (mCellDataTime - time > REPORTER_WINDOW) {
-          mCellData = "";
-          mCellDataTime = 0;
+            mCellData = "";
+            mCellDataTime = 0;
         }
 
         if (mGPSDataTime - time > REPORTER_WINDOW) {
-          mGPSData = "";
-          mGPSDataTime = 0;
+            mGPSData = "";
+            mGPSDataTime = 0;
         }
 
         if (subject.equals("WifiScanner")) {
@@ -127,7 +137,10 @@ class Reporter extends BroadcastReceiver {
         }
 
         // Record recent Wi-Fi and/or cell scan results for the current GPS position.
-        Log.d(LOGTAG, "Reporter data: GPS: "+mGPSData.length()+", WiFi: "+mWifiData.length()+", Cell: "+mCellData.length()+" ("+mRadioType+")");
+        Log.d(LOGTAG, "Reporter data: GPS: "+mGPSData.length() + 
+              ", WiFi: "+mWifiData.length()+", Cell: " + 
+              mCellData.length()+" ("+mRadioType+")");
+
         if (mGPSData.length() > 0 && (mWifiData.length() > 0 || mCellData.length() > 0)) {
           reportLocation(mGPSData, mWifiData, mRadioType, mCellData);
           resetData();
@@ -136,24 +149,31 @@ class Reporter extends BroadcastReceiver {
 
     void sendReports(boolean force) {
         Log.d(LOGTAG, "sendReports: " + force);
+
+        mReportsLock.lock();
+
         int count = mReports.length();
         if (count == 0) {
             Log.d(LOGTAG, "no reports to send");
+            mReportsLock.unlock();
             return;
         }
 
         if (count < RECORD_BATCH_SIZE && !force) {
             Log.d(LOGTAG, "batch count not reached, and !force");
+            mReportsLock.unlock();
             return;
         }
 
         if (!NetworkUtils.isNetworkAvailable(mContext)) {
             Log.d(LOGTAG, "Can't send reports without network connection");
+            mReportsLock.unlock();
             return;
         }
 
         JSONArray reports = mReports;
         mReports = new JSONArray();
+        mReportsLock.unlock();
 
         String nickname = mPrefs.getNickname();
         spawnReporterThread(reports, nickname);
@@ -162,6 +182,7 @@ class Reporter extends BroadcastReceiver {
     private void spawnReporterThread(final JSONArray reports, final String nickname) {
         new Thread(new Runnable() {
             public void run() {
+                boolean successfulUpload = false;
                 try {
                     Log.d(LOGTAG, "sending results...");
 
@@ -194,13 +215,13 @@ class Reporter extends BroadcastReceiver {
                         StringBuilder total = new StringBuilder(in.available());
                         String line;
                         while ((line = r.readLine()) != null) {
-                          total.append(line);
+                            total.append(line);
                         }
                         r.close();
 
                         mLastUploadTime = System.currentTimeMillis();
                         sendUpdateIntent();
-
+                        successfulUpload = true;
                         Log.d(LOGTAG, "response was: \n" + total + "\n");
                     } catch (JSONException jsonex) {
                         Log.e(LOGTAG, "error wrapping data as a batch", jsonex);
@@ -212,6 +233,18 @@ class Reporter extends BroadcastReceiver {
                 } catch (Exception ex) {
                     Log.e(LOGTAG, "error submitting data", ex);
                 }
+
+                if (!successfulUpload) {
+                    try {
+                        mReportsLock.lock();
+                        for (int i = 0; i < reports.length(); i++) {
+                            mReports.put(reports.get(i));
+                        }
+                    } catch (JSONException jsonex) {
+                    } finally {
+                        mReportsLock.unlock();
+                    }
+                }
             }
         }).start();
     }
@@ -219,8 +252,8 @@ class Reporter extends BroadcastReceiver {
     void reportLocation(String location, String wifiInfo, String radioType, String cellInfo) {
         Log.d(LOGTAG, "reportLocation called");
         JSONObject locInfo = null;
-        JSONArray cellJSON = null
-                ,wifiJSON = null;
+        JSONArray cellJSON = null;
+        JSONArray wifiJSON = null;
 
         try {
             locInfo = new JSONObject( location );
