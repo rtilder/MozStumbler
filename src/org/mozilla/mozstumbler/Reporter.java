@@ -50,7 +50,7 @@ class Reporter extends BroadcastReceiver {
     private String mGPSData;
 
     private String mRadioType;
-    private long mReportsSent;
+    private long   mReportsSent;
 
     Reporter(Context context, Prefs prefs) {
         mContext = context;
