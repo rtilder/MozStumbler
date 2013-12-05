@@ -48,5 +48,4 @@ public class PreferencesScreen extends PreferenceActivity {
            mNicknamePreference.setTitle(getString(R.string.enter_nickname));
        }
     }
-    
 }

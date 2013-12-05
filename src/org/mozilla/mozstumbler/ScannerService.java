@@ -197,7 +197,7 @@ public final class ScannerService extends Service {
         mScanner = null;
 
         mReporter.shutdown();
-        mReporter = null; 
+        mReporter = null;
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.cancel(NOTIFICATION_ID);

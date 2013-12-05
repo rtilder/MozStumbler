@@ -110,18 +110,18 @@ class Reporter extends BroadcastReceiver {
         if (data!=null) Log.d(LOGTAG, "" + subject + " : " + data);
 
         if (mWifiDataTime - time > REPORTER_WINDOW) {
-          mWifiData = "";
-          mWifiDataTime = 0;
+            mWifiData = "";
+            mWifiDataTime = 0;
         }
 
         if (mCellDataTime - time > REPORTER_WINDOW) {
-          mCellData = "";
-          mCellDataTime = 0;
+            mCellData = "";
+            mCellDataTime = 0;
         }
 
         if (mGPSDataTime - time > REPORTER_WINDOW) {
-          mGPSData = "";
-          mGPSDataTime = 0;
+            mGPSData = "";
+            mGPSDataTime = 0;
         }
 
         if (subject.equals("WifiScanner")) {
@@ -143,8 +143,8 @@ class Reporter extends BroadcastReceiver {
         // Record recent Wi-Fi and/or cell scan results for the current GPS position.
         Log.d(LOGTAG, "Reporter data: GPS: "+mGPSData.length()+", WiFi: "+mWifiData.length()+", Cell: "+mCellData.length()+" ("+mRadioType+")");
         if (mGPSData.length() > 0 && (mWifiData.length() > 0 || mCellData.length() > 0)) {
-          reportLocation(mGPSData, mWifiData, mRadioType, mCellData);
-          resetData();
+	    reportLocation(mGPSData, mWifiData, mRadioType, mCellData);
+	    resetData();
         }
     }
 
@@ -211,7 +211,7 @@ class Reporter extends BroadcastReceiver {
                         StringBuilder total = new StringBuilder(in.available());
                         String line;
                         while ((line = r.readLine()) != null) {
-                          total.append(line);
+			    total.append(line);
                         }
                         r.close();
 
